@@ -18,7 +18,7 @@ sess = tf.Session(config=tf.ConfigProto(log_device_placement=True))
 # Model parameters - change these as needed
 steering_correction = 0.15
 batch_size = 128
-load_previous_weights = False
+load_previous_weights = True
 weights_filename = "model.h5"
 
 
@@ -148,7 +148,7 @@ history_object = model.fit_generator(train_generator,
                                      samples_per_epoch=train_samples_per_epoch,
                                      validation_data=validation_generator,
                                      nb_val_samples=val_samples_per_epoch,
-                                     nb_epoch=100,
+                                     nb_epoch=200,
                                      callbacks=[checkpoint],
                                      verbose=1)
 
