@@ -18,10 +18,11 @@ sess = tf.Session(config=tf.ConfigProto(log_device_placement=True))
 # Model parameters - change these as needed
 steering_correction = 0.15
 batch_size = 128
-load_previous_weights = False
+load_previous_weights = False  # potentially start with weights from a previous run
 weights_filename = "model.h5"
 
 
+# First, read the data in driving_log
 lines = []
 steering_angles = []
 nr_samples = 0
@@ -45,15 +46,19 @@ print("{0} samples in training dataset and {1} in validation dataset".format(len
 
 
 def get_path(line_entry):
+    """Returns the correct path for a path encoded in the csv file"""
     return os.path.join("./data/IMG/", os.path.basename(line_entry.strip()))
 
-
 def get_augmented_row(line, flipped, angle_idx):
+    """Get an image and steering angle for 1 line in the driving_log.csv file.
+    The image can be augmented by either flipping (flipped = True) or using an alternate
+    camera (angle_idx = 0 represents the center camera, angle_idx = 1 represents the left camera,
+    and angle_idx = 2 represents the right camera."""
     source_path = get_path(line[angle_idx])
     image = cv2.imread(source_path)
     steering_angle = float(line[3])
 
-    # Add steering angle adjustment to left/right cameras
+    # Add steering angle correction to left/right cameras
     if angle_idx == 0:  # center camera
         steering_angle_corrected = steering_angle
     elif angle_idx == 1:  # left camera
@@ -69,6 +74,9 @@ def get_augmented_row(line, flipped, angle_idx):
 
 
 def get_data_generator(csv_data, batch_size=128, samples_per_epoch=None):
+    """Generator to produce training/validation datasets without the need to hold all images in memory.
+    In addition, the generator will apply some random data augmentation by randomly flipping images and
+    selecting a random camera angle (i.e., center, left or right)."""
     if samples_per_epoch is None:
         samples_per_epoch = len(csv_data)
 
@@ -99,10 +107,9 @@ def get_data_generator(csv_data, batch_size=128, samples_per_epoch=None):
             batch_nr = 0
         yield X_batch, y_batch
 
+# Truncate the training/validation dataset so they contain an integer times the batch_size
 train_samples_per_epoch = (len(train_lines) // batch_size) * batch_size
-
-# Go over validation data twice to have a more robust value of the validation loss
-val_samples_per_epoch = (len(validation_lines) // batch_size) * batch_size * 2
+val_samples_per_epoch = (len(validation_lines) // batch_size) * batch_size
 
 train_generator = get_data_generator(train_lines,
                                      batch_size=batch_size,
@@ -112,7 +119,9 @@ validation_generator = get_data_generator(validation_lines,
                                           samples_per_epoch=val_samples_per_epoch)
 
 model = Sequential()
+# Crop the sky (top 50 pixels) and dashboard (lower 20 pixels)
 model.add(Cropping2D(cropping=((50, 20), (0, 0)), input_shape=(160, 320, 3)))
+# Normalize to get values between -0.5 and +0.5
 model.add(Lambda(lambda x: x / 255.0 - 0.5))
 model.add(Convolution2D(24, 5, 5, subsample=(2, 2), activation="elu", init='he_normal'))
 model.add(Convolution2D(36, 5, 5, subsample=(2, 2), activation="elu", init='he_normal'))
@@ -129,7 +138,14 @@ model.add(Dense(1))
 
 if load_previous_weights:
     model.load_weights(weights_filename)
+
+# overriding the default learning rate of 1e-3 to 1e-4 to achieve more stable/robust learning
+# without this, I found that the loss on the training data would sometimes randomly peak up
 model.compile(loss='mse', optimizer=Adam(1e-4), metrics=['accuracy'])
+
+# save intermediate models every time the validation loss decreased
+# this is an effective "early termination" mechanism; if the validation loss increases due to overfitting,
+# the model is no longer saved
 checkpoint = ModelCheckpoint(weights_filename, monitor='val_loss', verbose=1, save_best_only=True, mode='min')
 
 history_object = model.fit_generator(train_generator,
@@ -142,5 +158,6 @@ history_object = model.fit_generator(train_generator,
 
 model.save('final_model.h5')
 
+# Save the history so we can draw learning curves
 with open('history_object', 'wb') as handle:
     pickle.dump(history_object.history, handle, protocol=pickle.HIGHEST_PROTOCOL)
