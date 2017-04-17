@@ -18,7 +18,7 @@ sess = tf.Session(config=tf.ConfigProto(log_device_placement=True))
 # Model parameters - change these as needed
 steering_correction = 0.15
 batch_size = 128
-load_previous_weights = True
+load_previous_weights = False
 weights_filename = "model.h5"
 
 
@@ -69,18 +69,11 @@ def get_augmented_row(line, flipped, angle_idx):
 
 
 def get_data_generator(csv_data, batch_size=128, samples_per_epoch=None):
-    """Returns an object that can generate image/steering_angle data in batches of batch_size.
-
-    Samples_per_epoch is by default the number of datapoints in csv_data.
-    However, samples_per_epoch can be set to a value different than the number of datapoints.
-    This is handy if you want to cycle through the data multiple times within 1 epoch."""
     if samples_per_epoch is None:
         samples_per_epoch = len(csv_data)
-    nr_csv_data = len(csv_data)
 
     batches_per_epoch = samples_per_epoch // batch_size
     batch_nr = 0
-    image_idx = 0
 
     while True:
         start_idx = batch_nr * batch_size
@@ -92,22 +85,17 @@ def get_data_generator(csv_data, batch_size=128, samples_per_epoch=None):
 
         # slice a `batch_size` sized chunk from the csv_data
         # and generate augmented data for each row in the chunk on the fly
-        for batch_idx in range(batch_size):
-            csv_line = csv_data[image_idx]
-            # perform image augmentation for each row
+        for idx, csv_line in enumerate(csv_data[start_idx:(end_idx+1)]):
+            # perform image augmentation for each row with a random draw for camera and mirroring
             flipped = random.randint(0, 1) == 0
             angle_idx = random.randint(0, 2)
 
             X, y = get_augmented_row(csv_line, flipped, angle_idx)
-            X_batch[batch_idx], y_batch[batch_idx] = X, y
-            image_idx += 1
-            if image_idx == nr_csv_data:
-                # reset the index so that we can cycle over the csv_data again
-                image_idx = 0
+            X_batch[idx], y_batch[idx] = X, y
 
         batch_nr += 1
         if batch_nr == batches_per_epoch - 1:
-            image_idx = 0
+            # reset the index so that we can cycle over the csv_data again
             batch_nr = 0
         yield X_batch, y_batch
 
